@@ -37,6 +37,8 @@ Set `base_url` to `http://SERVER:18088` and `account_id` to an allowed account I
 
 ### Find an account
 
+You can also open **Accounts & assets → select an account → API account ID** in the web app to view or copy the ID. It is also available in account settings. Knowing an ID does not grant access; the app password still needs the appropriate account and operation permissions.
+
 Send **GET** `{{base_url}}/api/v1/accounts`. Check `id`, `currency` and `scale`; copy the desired ID to `account_id`. The following sequence requires both read and create permissions.
 
 ### Create an expense

@@ -1,4 +1,5 @@
 import { saveOfflineEntry, isPinned, pinTransaction } from "./offline";
+import { copyText } from "./clipboard";
 import { isWritableAccount } from "./accounts";
 import { purgeMessage, type PurgeResult } from "./api";
 import { today, currentTime } from "./dates";
@@ -1105,7 +1106,7 @@ export function LedgerDialog(
               {editing && (
                 <button
                   type="button"
-                  className="secondary-button danger-text"
+                  className="secondary-button danger-text ledger-trash-button"
                   disabled={task.busy}
                   onClick={() =>
                     task.run(async () => {
@@ -1199,6 +1200,34 @@ export function AccountDialog(
       }
       onClose={p.close}
     >
+      {ac && (
+        <details className="account-api-details">
+          <summary>{msg("API 계좌 ID")}</summary>
+          <div className="account-id-controls">
+            <input
+              className="field-input"
+              aria-label={msg("계좌 ID")}
+              value={ac.id}
+              readOnly
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={task.busy}
+              onClick={() =>
+                task.run(async () => {
+                  await copyText(ac.id);
+                  p.notify(msg("계좌 ID를 복사했어요."));
+                })
+              }
+            >
+              {msg("복사")}
+            </button>
+          </div>
+          <ErrorText error={task.error} />
+        </details>
+      )}
       {ac && !editing ? (
         <>
           <div className="detail-hero">

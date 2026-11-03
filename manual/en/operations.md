@@ -18,10 +18,10 @@ The restart policy starts the container after reboots when Docker is running. `/
 
 First sync or export pending operations using the cloud icon on every device. Then read the [changelog](https://github.com/daytivehq/duet-ledger/blob/main/CHANGELOG.en.md) and save a backup with its original `master.key`. Check [Releases](https://github.com/daytivehq/duet-ledger/releases) to confirm that the target image has been published.
 
-Set the version in `.env` beside your Compose file. For example, to update to 0.3.0:
+Set the version in `.env` beside your Compose file. For example, to update to 0.3.1:
 
 ```dotenv
-DUET_LEDGER_IMAGE=ghcr.io/daytivehq/duet-ledger:0.3.0
+DUET_LEDGER_IMAGE=ghcr.io/daytivehq/duet-ledger:0.3.1
 ```
 
 In a Docker management interface, change its environment variable or `image` tag. A `DUET_LEDGER_IMAGE` value in `.env` or the shell overrides the Compose default. Prefer an exact version over `latest` to control when you update.
@@ -39,7 +39,7 @@ Keep the volume and environment settings. **An old image alone is not a safe rol
 
 ## Switching from the previous image location
 
-If your installation uses `ghcr.io/goodjinc/duet-ledger`, first confirm that the new image is published and publicly downloadable. Change `DUET_LEDGER_IMAGE` in `.env` or `image` in Compose to `ghcr.io/daytivehq/duet-ledger:0.3.0`, then run the update commands above. The owner path must also change for `latest`. **To retain your current version, first check that the exact tag exists at the new location.**
+If your installation uses `ghcr.io/goodjinc/duet-ledger`, first confirm that the new image is published and publicly downloadable. Change `DUET_LEDGER_IMAGE` in `.env` or `image` in Compose to `ghcr.io/daytivehq/duet-ledger:0.3.1`, then run the update commands above. The owner path must also change for `latest`. **To retain your current version, first check that the exact tag exists at the new location.**
 
 Transferring the repository does not update existing installations' image references. Keep the same Compose project name, data volume, environment variables and server URL. No data reset or backup restoration is required. **Do not run `docker compose down -v`: it deletes the data volume.**
 

@@ -2,7 +2,10 @@
 
 [한국어](CHANGELOG.md)
 
-## Unreleased
+## 0.3.1 · Unreleased
+
+- Added spacing between ledger save and delete buttons.
+- Added expandable API account IDs with copying in account details and settings.
 
 - Updated repository links and the default Docker image location to `daytivehq/duet-ledger`, with migration guidance for existing installations.
 

@@ -310,6 +310,35 @@ describe("계좌·기록 휴지통과 저장 단축키", () => {
       expect.anything(),
     );
   });
+  it("계좌 상세의 API ID는 접혀 있으며 조회 사용자도 펼쳐 복사한다", async () => {
+    const actor = userEvent.setup();
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
+    const p = props();
+    render(
+      <AccountDialog
+        {...p}
+        account={{ ...account, role: "viewer" }}
+        entry={vi.fn()}
+        showLedger={vi.fn()}
+      />,
+    );
+    const summary = screen.getByText("API 계좌 ID");
+    expect(summary.closest("details")?.open).toBe(false);
+    expect(screen.queryByRole("button", { name: /계좌 설정/ })).toBeNull();
+    await actor.click(summary);
+    expect(summary.closest("details")?.open).toBe(true);
+    expect((screen.getByLabelText("계좌 ID") as HTMLInputElement).value).toBe(
+      account.id,
+    );
+    await actor.click(screen.getByRole("button", { name: "복사" }));
+    await waitFor(() =>
+      expect(p.notify).toHaveBeenCalledWith("계좌 ID를 복사했어요."),
+    );
+    expect(writeText).toHaveBeenCalledWith(account.id);
+    expect(post).not.toHaveBeenCalled();
+  });
   it("계좌 삭제는 이름 입력 없이 확인·취소하고 기록 유지 설명을 보여준다", async () => {
     const actor = userEvent.setup();
     const p = props();
