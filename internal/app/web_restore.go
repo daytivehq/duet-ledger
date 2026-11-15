@@ -19,7 +19,7 @@ import (
 
 const restoreUploadLimit = 512 << 20
 
-type restoreUpload struct{ dir, archive, key, name string }
+type restoreUpload struct{ dir, archive, key, name, password string }
 type restoreUploadKey struct{}
 type restorePlan struct {
 	Token               string `json:"token"`
@@ -37,7 +37,7 @@ type restorePlan struct {
 // authenticated browser administrators with a valid CSRF token reach this code.
 func (a *App) receiveRestore(w http.ResponseWriter, r *http.Request) (func(), error) {
 	if r.ContentLength > restoreUploadLimit+65536 {
-		return nil, &apiError{413, "request_too_large", "백업 ZIP은 512MB 이하, 키 파일은 32바이트여야 해요."}
+		return nil, &apiError{413, "request_too_large", "백업 파일은 512MB 이하, 기존 키 파일은 32바이트여야 해요."}
 	}
 	if !a.restoreMu.TryLock() {
 		return nil, conflict("다른 백업 작업이 진행 중이에요. 잠시 후 다시 시도해 주세요.")
@@ -52,7 +52,7 @@ func (a *App) receiveRestore(w http.ResponseWriter, r *http.Request) (func(), er
 	r.Body = http.MaxBytesReader(w, r.Body, restoreUploadLimit+65536)
 	reader, err := r.MultipartReader()
 	if err != nil {
-		return fail(bad("백업 ZIP과 원래 키 파일을 확인해 주세요."))
+		return fail(bad("백업 파일과 복원 정보를 확인해 주세요."))
 	}
 	upload := &restoreUpload{dir: dir}
 	seen := map[string]bool{}
@@ -65,18 +65,22 @@ func (a *App) receiveRestore(w http.ResponseWriter, r *http.Request) (func(), er
 			return fail(bad("백업 파일을 받지 못했어요. 웹 복원은 512MB까지 지원해요."))
 		}
 		name := part.FormName()
-		if seen[name] || (name != "archive" && name != "key" && name != "name") {
+		if seen[name] || (name != "archive" && name != "key" && name != "name" && name != "backup_password") {
 			part.Close()
 			return fail(bad("입력 형식을 확인해 주세요."))
 		}
 		seen[name] = true
-		if name == "name" {
+		if name == "name" || name == "backup_password" {
 			b, e := io.ReadAll(io.LimitReader(part, 257))
 			part.Close()
 			if e != nil || len(b) > 256 {
 				return fail(bad("입력 형식을 확인해 주세요."))
 			}
-			upload.name = string(b)
+			if name == "name" {
+				upload.name = string(b)
+			} else {
+				upload.password = string(b)
+			}
 			continue
 		}
 		limit := int64(restoreUploadLimit)
@@ -93,7 +97,7 @@ func (a *App) receiveRestore(w http.ResponseWriter, r *http.Request) (func(), er
 		closeErr := f.Close()
 		part.Close()
 		if e != nil || closeErr != nil || n > limit || (name == "key" && n != 32) {
-			return fail(bad("백업 ZIP은 512MB 이하, 키 파일은 32바이트여야 해요."))
+			return fail(bad("백업 파일은 512MB 이하, 기존 키 파일은 32바이트여야 해요."))
 		}
 		if name == "archive" {
 			upload.archive = path
@@ -127,7 +131,7 @@ func (a *App) previewRestore(w http.ResponseWriter, r *http.Request, u *User) er
 	}
 	upload, ok := r.Context().Value(restoreUploadKey{}).(*restoreUpload)
 	if !ok {
-		return bad("백업 ZIP과 원래 키 파일을 확인해 주세요.")
+		return bad("백업 파일과 복원 정보를 확인해 주세요.")
 	}
 	if a.restorePlan != nil && time.Now().Before(a.restorePlan.until) && (a.restorePlan.owner != u.ID || a.restorePlan.session != restoreSession(r)) {
 		return conflict("다른 백업 작업이 진행 중이에요. 잠시 후 다시 시도해 주세요.")
@@ -145,7 +149,7 @@ func (a *App) previewRestore(w http.ResponseWriter, r *http.Request, u *User) er
 	}()
 	archive := upload.archive
 	if archive == "" {
-		if upload.name != filepath.Base(upload.name) || !strings.HasPrefix(upload.name, "duet-") || !strings.HasSuffix(upload.name, ".zip") {
+		if upload.name != filepath.Base(upload.name) || !strings.HasPrefix(upload.name, "duet-") || !backupFilename(upload.name) {
 			return missing()
 		}
 		archive = filepath.Join(a.Config.DataDir, "backups", upload.name)
@@ -158,8 +162,8 @@ func (a *App) previewRestore(w http.ResponseWriter, r *http.Request, u *User) er
 		}
 	}
 	target := filepath.Join(dir, "data")
-	if err = Restore(archive, target, key); err != nil {
-		return bad("백업 검증에 실패했어요. 백업 ZIP과 원래 키 파일을 확인해 주세요.")
+	if err = RestoreWithPassword(archive, target, key, upload.password); err != nil {
+		return bad("백업 검증에 실패했어요. 파일과 백업 비밀번호를 확인해 주세요. 기존 ZIP은 원래 키가 필요해요.")
 	}
 	staged, err := New(Config{DataDir: target})
 	if err != nil {
@@ -361,7 +365,7 @@ func (a *App) confirmRestore(w http.ResponseWriter, r *http.Request, u *User) er
 	if err := a.reauth(u, v.Password, v.Code); err != nil {
 		return err
 	}
-	backup, err := a.backupArchive(true)
+	backup, err := a.encryptedBackup(true)
 	if err != nil {
 		log.Printf("pre-restore backup failed: %v", err)
 		return &apiError{500, "backup_failed", "현재 자료 백업에 실패해 복원하지 않았어요. 저장 공간과 권한을 확인해 주세요."}
@@ -378,6 +382,11 @@ func (a *App) confirmRestore(w http.ResponseWriter, r *http.Request, u *User) er
 // The live schema and master key never change. Only data is replaced, inside
 // one SQLite transaction; any failure leaves all live rows and photos intact.
 func (a *App) applyRestore(plan *restorePlan) error {
+	var backupPassword string
+	err := a.DB.QueryRow("SELECT value FROM server_settings WHERE key='backup_password'").Scan(&backupPassword)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
 	tables, err := restoreTables(a.DB)
 	if err != nil {
 		return err
@@ -473,6 +482,16 @@ func (a *App) applyRestore(plan *restorePlan) error {
 		q := quoteSQLName(table)
 		cols := columns[table]
 		if _, err = tx.Exec("INSERT INTO main." + q + " (" + cols + ") SELECT " + cols + " FROM restore_source." + q); err != nil {
+			return err
+		}
+	}
+	// Keep this server's automatic-backup credentials; imported settings may be
+	// encrypted with a different key or use a different backup password.
+	if _, err = tx.Exec("DELETE FROM server_settings WHERE key='backup_password'"); err != nil {
+		return err
+	}
+	if backupPassword != "" {
+		if _, err = tx.Exec("INSERT INTO server_settings(key,value) VALUES('backup_password',?)", backupPassword); err != nil {
 			return err
 		}
 	}

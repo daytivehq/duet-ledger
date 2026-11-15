@@ -260,25 +260,30 @@ func (a *App) writeEvent(tx *sql.Tx, u *User, v TxInput, id string, create bool)
 	if _, err = tx.Exec("UPDATE events SET original_currency=?,original_amount=?,exchange_rate=? WHERE id=?", v.OriginalCurrency, v.OriginalAmount, v.ExchangeRate, id); err != nil {
 		return "", err
 	}
-	// Preserve a posting ID when its account remains in the event. Receipts are tied
-	// to that leg; moving a transaction away from an attached leg is rejected.
+	// Preserve posting IDs and receipts for accounts that remain in the event.
+	// Receipts on removed legs follow the corresponding source/target leg, or
+	// the sole remaining leg when converting a transfer to an ordinary entry.
 	existing := map[string]string{}
+	incoming := map[string]bool{}
+	postingIDs := make([]string, len(accounts))
 	touched := []string{}
 	for _, account := range accounts {
 		touched = append(touched, account.ID)
 	}
 	if !create {
-		rows, e := tx.Query("SELECT id,account_id FROM postings WHERE event_id=?", id)
+		rows, e := tx.Query("SELECT id,account_id,amount FROM postings WHERE event_id=?", id)
 		if e != nil {
 			return "", e
 		}
 		for rows.Next() {
 			var p, ac string
-			if e = rows.Scan(&p, &ac); e != nil {
+			var amount int64
+			if e = rows.Scan(&p, &ac, &amount); e != nil {
 				rows.Close()
 				return "", e
 			}
 			existing[ac] = p
+			incoming[p] = amount > 0
 			touched = append(touched, ac)
 		}
 		e = rows.Err()
@@ -304,6 +309,7 @@ func (a *App) writeEvent(tx *sql.Tx, u *User, v TxInput, id string, create bool)
 		if !exists {
 			pid = newID()
 		}
+		postingIDs[i] = pid
 		if i == 0 {
 			firstID = pid
 		}
@@ -313,12 +319,14 @@ func (a *App) writeEvent(tx *sql.Tx, u *User, v TxInput, id string, create bool)
 		delete(existing, ac.ID)
 	}
 	for _, pid := range existing {
-		var count int
-		if err = tx.QueryRow("SELECT COUNT(*) FROM receipts WHERE posting_id=?", pid).Scan(&count); err != nil {
-			return "", err
+		destination := postingIDs[0]
+		if len(postingIDs) == 2 && len(incoming) == 2 && incoming[pid] {
+			destination = postingIDs[1]
 		}
-		if count > 0 {
-			return "", bad("영수증이 연결된 계좌를 바꿀 수 없어요. 기존 기록을 보관하고 새 기록을 만들어 주세요.")
+		// Include detached receipts so their foreign keys remain valid, while
+		// preserving their deleted state and the original image files.
+		if _, err = tx.Exec("UPDATE receipts SET posting_id=? WHERE posting_id=?", destination, pid); err != nil {
+			return "", err
 		}
 		if _, err = tx.Exec("DELETE FROM postings WHERE id=?", pid); err != nil {
 			return "", err

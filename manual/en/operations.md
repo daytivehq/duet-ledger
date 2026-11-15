@@ -16,12 +16,12 @@ The restart policy starts the container after reboots when Docker is running. `/
 
 ## Updating
 
-First sync or export pending operations using the cloud icon on every device. Then read the [changelog](https://github.com/daytivehq/duet-ledger/blob/main/CHANGELOG.en.md) and save a backup with its original `master.key`. Check [Releases](https://github.com/daytivehq/duet-ledger/releases) to confirm that the target image has been published.
+First sync or export pending operations using the cloud icon on every device. Then read the [changelog](https://github.com/daytivehq/duet-ledger/blob/main/CHANGELOG.en.md) and save an encrypted backup and its backup password. Keep the original `master.key` for any legacy ZIP backups. Check [Releases](https://github.com/daytivehq/duet-ledger/releases) to confirm that the target image has been published.
 
-Set the version in `.env` beside your Compose file. For example, to update to 0.3.1:
+Set the version in `.env` beside your Compose file. For example, to update to 0.4.0:
 
 ```dotenv
-DUET_LEDGER_IMAGE=ghcr.io/daytivehq/duet-ledger:0.3.1
+DUET_LEDGER_IMAGE=ghcr.io/daytivehq/duet-ledger:0.4.0
 ```
 
 In a Docker management interface, change its environment variable or `image` tag. A `DUET_LEDGER_IMAGE` value in `.env` or the shell overrides the Compose default. Prefer an exact version over `latest` to control when you update.
@@ -39,7 +39,7 @@ Keep the volume and environment settings. **An old image alone is not a safe rol
 
 ## Switching from the previous image location
 
-If your installation uses `ghcr.io/goodjinc/duet-ledger`, first confirm that the new image is published and publicly downloadable. Change `DUET_LEDGER_IMAGE` in `.env` or `image` in Compose to `ghcr.io/daytivehq/duet-ledger:0.3.1`, then run the update commands above. The owner path must also change for `latest`. **To retain your current version, first check that the exact tag exists at the new location.**
+If your installation uses `ghcr.io/goodjinc/duet-ledger`, first confirm that the new image is published and publicly downloadable. Change `DUET_LEDGER_IMAGE` in `.env` or `image` in Compose to `ghcr.io/daytivehq/duet-ledger:0.4.0`, then run the update commands above. The owner path must also change for `latest`. **To retain your current version, first check that the exact tag exists at the new location.**
 
 Transferring the repository does not update existing installations' image references. Keep the same Compose project name, data volume, environment variables and server URL. No data reset or backup restoration is required. **Do not run `docker compose down -v`: it deletes the data volume.**
 
@@ -59,18 +59,11 @@ On the same Docker server, stop the old app and attach the existing `duet-ledger
 
 ### master.key
 
-`master.key` is a server secret generated automatically on first start. It currently encrypts two-factor authentication (TOTP) secrets and verifies that a backup matches its original key. It does not encrypt the entire transaction database. **The original key is required for operational restore even if two-factor authentication is disabled.**
+`master.key` is an automatically generated internal server key protecting two-factor authentication (TOTP) secrets. It does not encrypt the whole transaction database. **Do not delete or replace the running server's key.** The default Docker installation stores it at `/data/master.key` in the data volume; custom installations store it in the data directory.
 
-| Installation           | Key location                                                                        |
-| ---------------------- | ----------------------------------------------------------------------------------- |
-| Default Docker Compose | `/data/master.key` inside the container, persisted in the `duet-ledger-data` volume |
-| Custom data directory  | `master.key` in the directory selected by `DUET_LEDGER_DATA_DIR` or `--data-dir`    |
+**New `.zip.age` backups include the recovery key inside the encrypted file. Restore with just the backup file and backup password.** Legacy `.zip` backups still require their original `master.key`. Keep the original key for as long as you keep those backups.
 
-It is not automatically created beside your Compose file. Keeping the data volume preserves the key across container updates. Other installations and development containers have different keys; use the original key from the installation that created the backup.
-
-Download the key in **Administration → Backup and restore → Download key file** after verifying your current password and, if enabled, a verification code. Keep a copy when first setting up the server.
-
-If the web interface is unavailable, copy it from the default container as follows. Replace `duet-ledger` if you changed the container name. If a key already exists in the destination, do not overwrite it; keep a separate folder for each installation.
+Download a legacy key under **Backup and restore → Key file for legacy ZIP backups → Download key file**, after verifying your administrator password and, if enabled, a verification code. If the web interface is unavailable, copy it into a private directory. Never overwrite an existing copy.
 
 ```bash
 mkdir -p private-backup
@@ -79,44 +72,43 @@ docker cp duet-ledger:/data/master.key ./private-backup/master.key
 chmod 600 ./private-backup/master.key
 ```
 
-**Operational backup ZIPs do not include the key.** Store it securely and separately, and label which backups it belongs to. Never upload it to GitHub, public shares or messages. Deleting or replacing it can break existing two-factor authentication or normal restoration. If it is missing, check the original volume and saved copies first. A newly generated key cannot replace the original.
-
 ### Make a backup
 
 1. Open **Administration → Backup and restore**.
-2. Select **Create and download backup**. The verified ZIP is saved on the server and downloaded to your device.
-3. On first use, also select **Download key file** and keep `master.key` separately.
+2. On first use, enter and confirm a **New backup password** of at least 12 characters and at most 256 bytes. Save it after verifying your current administrator password and any required verification code.
+3. Keep the backup password somewhere safe, such as 1Password. If lost, backups cannot be restored on a new server.
+4. Select **Create and download backup**. The verified `.zip.age` file is saved on the server and downloaded to your device.
 
-The ZIP includes all users’ records, receipts and shared appearance files. **It is not encrypted and does not include the key.** Keep both files private and label them so you know which installation they belong to. CSV/JSON exports do not replace a server backup.
+All users' records, receipts, shared appearance and the TOTP recovery key are encrypted. For automatic backups, the server stores the backup password encrypted under its internal key. Neither manual nor automatic backups are created before setup. Password changes affect future backups only: **older backups still require their original password.** This encryption does not prevent access by someone who controls the server.
 
-Automatic backups run daily while the server is running. Cleanup retains the latest seven files, including manual and pre-restore backups. **Download important copies to another device.**
+After setup, automatic backups run daily while the server is running. Cleanup retains the latest seven files, including manual and pre-restore backups. Download important copies to another device. CSV/JSON exports do not replace a server backup.
 
-**Sync or export pending operations on every device before restoring.** Server backups do not contain device-local pending work. Restoration blocks automatic replay from the older dataset. [Offline guide](offline.md)
+**Sync or export pending operations on every device before restoring.** Server backups do not contain device-local pending work. [Offline guide](offline.md)
 
 ### Restore through the web interface
 
-**All users’ data will be replaced with the selected backup.** Notify other users and finish any other work first.
+**All users' data will be replaced with the selected backup.** Notify other users and finish other work first.
 
-1. Open **Backup and restore → Restore**, or use **Restore** next to a saved backup.
-2. Select a server backup or attach a ZIP from your device.
-3. Backups from this server use its current key automatically. For a backup from another server, attach that backup’s original `master.key`.
+1. Configure this server's backup password first, for the pre-restore safety backup.
+2. Open **Restore** and select a saved backup or attach a `.zip.age` file.
+3. Enter the **Backup password** used when that file was created. For a legacy ZIP, expand **Original key for a legacy ZIP backup** and attach its original key instead. Legacy ZIPs from this server use its current key automatically.
 4. Select **Check backup** and review its date and user, account, transaction and receipt counts.
-5. Enter your current administrator password and, if enabled, a verification code. Acknowledge that the data will be replaced, then select **Back up current data and restore**.
-6. Sign in again using credentials from the backup and check balances, transactions, photos and sharing permissions.
+5. Verify your current administrator password and any required verification code, acknowledge replacement and select **Back up current data and restore**.
+6. Sign in using credentials from the backup and check balances, transactions, photos and sharing permissions.
 
-The server checks the archive, key, database integrity and photos first. Current data is automatically backed up before restoration. If the database update fails, existing data remains intact. To undo a successful restore, select the file marked **Automatic backup before restore** and follow the same steps. Retention applies to this backup too; download it if needed.
+The server authenticates the encrypted file and checks database integrity and photos first. Incorrect passwords and damaged files cannot be restored. Current data is saved in an encrypted safety backup using this server's backup password before restoration. If backup creation or database replacement fails, existing data remains intact. To undo a successful restore, select **Automatic backup before restore** and use the password in effect when it was created.
 
-Restoration invalidates **all login sessions, pending invitations and API app passwords**. Accounts and approved sharing relationships return to their backed-up state. Web restoration retains this server’s `master.key` and re-encrypts imported two-factor secrets with it. New backups use the current server’s key; older ZIP files still require the key they were created with.
+Restoration invalidates **all login sessions, pending invitations and API app passwords**. Accounts, approved sharing, TOTP secrets and recovery codes are preserved. Your existing authenticator continues to work. Web restoration retains this server's internal key and automatic-backup password, and re-encrypts imported TOTP secrets under the current key.
 
-Web uploads support ZIP files up to **512 MB**, with up to **10 GB** of uncompressed data. Proxy upload limits, available disk space and request timeouts may impose lower limits. A preview lasts 10 minutes and must be recreated after a restart. Other requests may briefly wait while the server validates, creates or restores a backup.
+Web uploads support files up to **512 MB**, with up to **10 GB** of uncompressed data. Proxy limits, available disk space and timeouts may impose lower limits. Previews last 10 minutes and must be recreated after a restart. Other requests may briefly wait during backup creation, verification or restoration.
 
 ### When the web interface is unavailable or the backup is too large
 
-Use the server’s `restore` command. It restores into a new directory and refuses to overwrite existing data. This also lets you test a backup in a separate volume. Place copies of the ZIP and its original key in `private-backup` before following the steps below.
+The `restore` command restores into a new directory and refuses to overwrite existing data. For new backups, use `--password-file` to read a password file, or `--password-file -` to read standard input. Never put passwords directly in command arguments or shell history. One trailing line ending is removed.
 
 ### Test a restore into a separate Docker volume
 
-**Leave the production volume untouched.** Replace `BACKUP.zip` with the actual filename and `IMAGE` with an app image compatible with the backup. Check it with `docker inspect --format '{{.Config.Image}}' duet-ledger`.
+Place the backup and `password.txt` in `private-backup`. Restrict the password file to its owner and manage it securely after restoration. Replace `BACKUP.zip.age` and `IMAGE` with the actual filename and a compatible app image. Keep the production volume untouched.
 
 ```bash
 docker volume create duet-ledger-restore-test
@@ -124,10 +116,10 @@ docker run --rm --user 0 \
   -v duet-ledger-restore-test:/restore \
   -v "$PWD/private-backup:/backup:ro,Z" \
   --entrypoint sh IMAGE -c \
-  '/duet-ledger restore --archive /backup/BACKUP.zip --key-file /backup/master.key --data-dir /restore/restored && chown -R 10001:10001 /restore/restored'
+  '/duet-ledger restore --archive /backup/BACKUP.zip.age --password-file /backup/password.txt --data-dir /restore/restored && chown -R 10001:10001 /restore/restored'
 ```
 
-The `restored` directory is created afresh; existing data is never overwritten. The original key must match the backup. `:Z` supports SELinux environments; use a dedicated folder containing only restore copies.
+Command-line restoration of a new backup generates a fresh internal key and re-encrypts TOTP secrets. Future automatic backups use the password supplied for restoration. For a legacy ZIP use `--archive /backup/BACKUP.zip --key-file /backup/master.key`, then configure a backup password in the web interface. `:Z` supports SELinux environments; use a dedicated folder containing only restore copies.
 
 Test on a separate port bound to the server itself:
 

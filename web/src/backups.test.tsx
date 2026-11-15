@@ -35,20 +35,35 @@ const props = {
 };
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(api).mockResolvedValue([
-    { name: "duet-test.zip", size: 1000, created_at: "2026-10-29T00:00:00Z" },
-  ]);
-  vi.mocked(post).mockResolvedValue({ name: "duet-new.zip" });
+  vi.mocked(api).mockImplementation(
+    async (path) =>
+      (path === "/backups/settings"
+        ? { configured: true }
+        : [
+            {
+              name: "duet-test.zip.age",
+              encrypted: true,
+              size: 1000,
+              created_at: "2026-10-29T00:00:00Z",
+            },
+          ]) as any,
+  );
+  vi.mocked(post).mockResolvedValue({ name: "duet-new.zip.age" });
   vi.mocked(download).mockResolvedValue(undefined);
 });
 afterEach(cleanup);
 it("creates and downloads a validated backup with one click", async () => {
   render(<BackupDialog {...props} />);
+  await waitFor(() =>
+    expect(
+      (screen.getByText("백업 만들고 다운로드") as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
   fireEvent.click(screen.getByText("백업 만들고 다운로드"));
   await waitFor(() =>
     expect(download).toHaveBeenCalledWith(
-      "/backups/duet-new.zip",
-      "duet-new.zip",
+      "/backups/duet-new.zip.age",
+      "duet-new.zip.age",
     ),
   );
   expect(post).toHaveBeenCalledWith("/backups");
@@ -66,10 +81,17 @@ it("checks a saved backup before displaying destructive confirmation", async () 
     transactions: 4,
     receipts: 1,
   });
+  fireEvent.change(screen.getByLabelText("백업 비밀번호"), {
+    target: { value: "restore-password" },
+  });
   fireEvent.click(screen.getByText("백업 확인하기"));
   await screen.findByText("복원할 자료 확인");
   const [, options] = vi.mocked(api).mock.calls.at(-1)!;
-  expect((options!.body as FormData).get("name")).toBe("duet-test.zip");
+  expect((options!.body as FormData).get("name")).toBe("duet-test.zip.age");
+  expect((options!.body as FormData).get("backup_password")).toBe(
+    "restore-password",
+  );
+  expect((options!.body as FormData).get("key")).toBeNull();
   const submit = screen.getByText(
     "현재 자료 백업 후 복원",
   ) as HTMLButtonElement;
@@ -84,7 +106,8 @@ it("checks a saved backup before displaying destructive confirmation", async () 
 });
 it("requires an authentication code for administrators with 2FA", async () => {
   render(<BackupDialog {...props} user={{ ...user, totp_enabled: true }} />);
-  fireEvent.click(screen.getByText("키 파일 다운로드"));
+  await screen.findByText("백업 비밀번호 변경");
+  fireEvent.click(screen.getByText("백업 비밀번호 변경"));
   expect(
     screen.getByLabelText("인증 코드 또는 복구 코드").getAttribute("required"),
   ).not.toBeNull();
@@ -95,14 +118,52 @@ it("rejects oversized ZIP files before uploading", async () => {
   fireEvent.click(screen.getAllByText("복원")[0]);
   const file = new File([""], "large.zip", { type: "application/zip" });
   Object.defineProperty(file, "size", { value: 513 * 1024 * 1024 });
-  fireEvent.change(screen.getByLabelText("백업 ZIP"), {
+  fireEvent.change(screen.getByLabelText("백업 파일"), {
     target: { files: [file] },
   });
   expect(
-    screen.getByText("백업 ZIP은 512MB 이하, 키 파일은 32바이트여야 해요."),
+    screen.getByText(
+      "백업 파일은 512MB 이하, 기존 키 파일은 32바이트여야 해요.",
+    ),
   ).toBeTruthy();
   expect(
     (screen.getByText("백업 확인하기") as HTMLButtonElement).disabled,
   ).toBe(true);
-  expect(api).toHaveBeenCalledTimes(1);
+  expect(api).toHaveBeenCalledTimes(2);
+});
+
+it("requires password setup before backups and checks confirmation", async () => {
+  vi.mocked(api).mockImplementation(
+    async (path) =>
+      (path === "/backups/settings" ? { configured: false } : []) as any,
+  );
+  render(<BackupDialog {...props} />);
+  expect(
+    (screen.getByText("백업 만들고 다운로드") as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.change(screen.getByLabelText("새 백업 비밀번호"), {
+    target: { value: "new-backup-password" },
+  });
+  fireEvent.change(screen.getByLabelText("백업 비밀번호 확인"), {
+    target: { value: "different-password" },
+  });
+  fireEvent.change(screen.getByLabelText("현재 비밀번호"), {
+    target: { value: "admin-password" },
+  });
+  fireEvent.submit(screen.getByText("백업 비밀번호 저장").closest("form")!);
+  await screen.findByText("백업 비밀번호가 일치하지 않아요.");
+  expect(post).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("백업 비밀번호 확인"), {
+    target: { value: "new-backup-password" },
+  });
+  fireEvent.submit(screen.getByText("백업 비밀번호 저장").closest("form")!);
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/backups/settings", {
+      password: "admin-password",
+      code: "",
+      backup_password: "new-backup-password",
+    }),
+  );
+  await screen.findByText("백업 비밀번호 변경");
+  expect(screen.queryByLabelText("새 백업 비밀번호")).toBeNull();
 });

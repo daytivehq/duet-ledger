@@ -3,6 +3,7 @@ package app
 import (
 	"archive/zip"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,12 +21,10 @@ type BackupInfo struct {
 	Size          int64  `json:"size"`
 	Created       string `json:"created_at"`
 	BeforeRestore bool   `json:"before_restore,omitempty"`
+	Encrypted     bool   `json:"encrypted"`
 }
 
-func (a *App) backup() (string, error) { return a.backupArchive(false) }
-
-func (a *App) backupArchive(beforeRestore bool) (string, error) {
-	dir := filepath.Join(a.Config.DataDir, "backups")
+func (a *App) writeBackupArchive(dir string, beforeRestore, includeKey bool) (string, error) {
 	name := "duet-ledger-backup-" + time.Now().UTC().Format("20060102-150405") + "-" + newID()[:6] + ".zip"
 	if beforeRestore {
 		name = strings.TrimSuffix(name, ".zip") + "-before-restore.zip"
@@ -34,6 +33,19 @@ func (a *App) backupArchive(beforeRestore bool) (string, error) {
 	defer os.Remove(snapshot)
 	if _, err := a.DB.Exec("VACUUM INTO ?", snapshot); err != nil {
 		return "", err
+	}
+	// The saved automatic-backup password is server configuration, not restored data.
+	snapshotDB, err := sql.Open("sqlite", snapshot)
+	if err != nil {
+		return "", err
+	}
+	_, err = snapshotDB.Exec("DELETE FROM server_settings WHERE key='backup_password'")
+	closeErr := snapshotDB.Close()
+	if err != nil {
+		return "", err
+	}
+	if closeErr != nil {
+		return "", closeErr
 	}
 	path := filepath.Join(dir, name)
 	temp := path + ".partial"
@@ -50,6 +62,10 @@ func (a *App) backupArchive(beforeRestore bool) (string, error) {
 	}()
 	writer := zip.NewWriter(file)
 	metadata := map[string]any{"format": "duet-operational-backup", "version": 1, "app_version": Version, "created_at": now(), "master_key_sha256": tokenHash(string(a.master)), "master_key_included": false}
+	if includeKey {
+		metadata["version"] = 2
+		metadata["master_key_included"] = true
+	}
 	b, _ := json.MarshalIndent(metadata, "", "  ")
 	entry, err := writer.Create("manifest.json")
 	if err != nil {
@@ -70,6 +86,15 @@ func (a *App) backupArchive(beforeRestore bool) (string, error) {
 		}
 		_, e = io.Copy(entry, src)
 		return e
+	}
+	if includeKey {
+		entry, e := writer.Create("master.key")
+		if e != nil {
+			return "", e
+		}
+		if _, e = entry.Write(a.master); e != nil {
+			return "", e
+		}
 	}
 	if err = add(snapshot, "duet.sqlite"); err != nil {
 		return "", err
@@ -151,14 +176,14 @@ func (a *App) backupList() ([]BackupInfo, error) {
 	}
 	out := []BackupInfo{}
 	for _, f := range entries {
-		if f.IsDir() || !strings.HasPrefix(f.Name(), "duet-") || !strings.HasSuffix(f.Name(), ".zip") {
+		if f.IsDir() || !strings.HasPrefix(f.Name(), "duet-") || !backupFilename(f.Name()) {
 			continue
 		}
 		info, e := f.Info()
 		if e != nil {
 			return nil, e
 		}
-		out = append(out, BackupInfo{Name: f.Name(), Size: info.Size(), Created: info.ModTime().UTC().Format(time.RFC3339), BeforeRestore: strings.HasSuffix(f.Name(), "-before-restore.zip")})
+		out = append(out, BackupInfo{Name: f.Name(), Size: info.Size(), Created: info.ModTime().UTC().Format(time.RFC3339), BeforeRestore: strings.HasSuffix(strings.TrimSuffix(f.Name(), ".age"), "-before-restore.zip"), Encrypted: strings.HasSuffix(f.Name(), ".age")})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name > out[j].Name })
 	return out, nil
@@ -178,7 +203,7 @@ func (a *App) createBackup(w http.ResponseWriter, r *http.Request, u *User) erro
 	if !u.Admin {
 		return forbidden()
 	}
-	name, err := a.backup()
+	name, err := a.encryptedBackup(false)
 	if err != nil {
 		return err
 	}
@@ -193,7 +218,7 @@ func (a *App) downloadBackup(w http.ResponseWriter, r *http.Request, u *User) er
 		return forbidden()
 	}
 	name := r.PathValue("name")
-	if name != filepath.Base(name) || !strings.HasPrefix(name, "duet-") || !strings.HasSuffix(name, ".zip") {
+	if name != filepath.Base(name) || !strings.HasPrefix(name, "duet-") || !backupFilename(name) {
 		return missing()
 	}
 	p := filepath.Join(a.Config.DataDir, "backups", name)
@@ -204,7 +229,7 @@ func (a *App) downloadBackup(w http.ResponseWriter, r *http.Request, u *User) er
 	if err != nil {
 		return err
 	}
-	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	return streamResponse(w, f)
 }
@@ -229,8 +254,8 @@ func (a *App) RunBackups(ctx context.Context) {
 					t, _ := time.Parse(time.RFC3339, list[0].Created)
 					due = time.Since(t) >= 24*time.Hour
 				}
-				if due {
-					if _, e = a.backup(); e != nil {
+				if due && a.backupConfigured() {
+					if _, e = a.encryptedBackup(false); e != nil {
 						log.Printf("scheduled backup failed: %v", e)
 					} else {
 						list, _ = a.backupList()

@@ -2,14 +2,22 @@
 
 [한국어](CHANGELOG.md)
 
-## 0.3.1 · Unreleased
+## 0.4.0 · 2026-11-15
+
+- Configure a backup password to encrypt manual, scheduled and pre-restore backups (.zip.age), including their recovery key. New backups restore two-factor authentication without a separate master.key; legacy ZIP/key restoration remains supported. Password changes affect future backups only.
+- Transactions with receipts can now change accounts while preserving attachments, updating balances and applying destination-account access permissions.
+- Encrypted restoration stages files on the data volume to avoid Docker's small `/tmp` limit. The restored directory is published only after validation and internal-key rotation succeed.
+- **After upgrading, configure a backup password of at least 12 characters in Administration → Backup and restore. New manual and automatic backups require this setup.** Store the password safely and keep the original master.key for any legacy ZIP backups.
+- Storage schema remains at version 8. Existing production data and backup files are not automatically converted.
+
+## 0.3.1 · 2026-11-04
 
 - Added spacing between ledger save and delete buttons.
 - Added expandable API account IDs with copying in account details and settings.
 
 - Updated repository links and the default Docker image location to `daytivehq/duet-ledger`, with migration guidance for existing installations.
 
-## 0.3.0 · Unreleased
+## 0.3.0 · 2026-10-30
 
 - Added per-browser offline storage: seven recent days by default, optional 30/90 days, 30-day retention of viewed historical records and individually pinned records.
 - Added cached search, viewing and totals, plus a durable outbox for new transactions, edits and attached photos. Operations synchronize when the app reconnects. Account balances remain the last confirmed server values.

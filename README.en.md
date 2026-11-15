@@ -37,7 +37,7 @@ Also available in the app's user menu → **Help and support**.
 
 ## Data storage
 
-Records are stored in the `duet-ledger-data` volume. **`docker compose down -v` can delete your data.** Keep operational backup ZIPs and the original `master.key` separately. See [key location and storage](manual/en/operations.md#masterkey) and back up important records regularly.
+Records are stored in the `duet-ledger-data` volume. **`docker compose down -v` can delete your data.** Keep encrypted backups and their backup password safe. New backups need no separate key file; legacy ZIPs still need their original `master.key`. See [backup and restore](manual/en/operations.md#masterkey).
 
 **Unsent device records are not included in server backups.** Use the cloud icon to sync or export pending work before clearing browser data or restoring the server.
 

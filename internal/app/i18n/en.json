@@ -227,5 +227,10 @@
   "현재 자료 백업에 실패해 복원하지 않았어요. 저장 공간과 권한을 확인해 주세요.": "The current data could not be backed up, so restoration was not started. Check available disk space and permissions.",
   "로그인한 계정이 바뀌었어요. 원래 계정에서 대기 기록을 확인해 주세요.": "The signed-in account has changed. Review pending records under the original account.",
   "서버 자료가 복원되었어요. 대기 기록을 확인한 뒤 다시 입력해 주세요.": "The server data has been restored. Review pending records before entering them again.",
-  "요청 식별자를 확인해 주세요.": "Check the request identifier."
+  "요청 식별자를 확인해 주세요.": "Check the request identifier.",
+  "먼저 백업 비밀번호를 설정해 주세요.": "Set a backup password first.",
+  "백업 비밀번호는 12자 이상, 256바이트 이하로 입력해 주세요.": "Use a backup password of at least 12 characters and at most 256 bytes.",
+  "백업 파일과 복원 정보를 확인해 주세요.": "Check the backup file and restore credentials.",
+  "백업 검증에 실패했어요. 파일과 백업 비밀번호를 확인해 주세요. 기존 ZIP은 원래 키가 필요해요.": "Backup verification failed. Check the file and backup password. Legacy ZIPs require their original key.",
+  "백업 파일은 512MB 이하, 기존 키 파일은 32바이트여야 해요.": "Backup files must be no larger than 512MB; legacy key files must be exactly 32 bytes."
 }

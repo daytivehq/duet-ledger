@@ -14,6 +14,9 @@ import (
 
 // Restore creates a new installation; it never replaces an existing dataset.
 func Restore(archive, dataDir, keyFile string) error {
+	return restoreArchive(archive, dataDir, keyFile, false)
+}
+func restoreArchive(archive, dataDir, keyFile string, embedded bool) error {
 	abs, err := filepath.Abs(dataDir)
 	if err != nil {
 		return err
@@ -23,12 +26,15 @@ func Restore(archive, dataDir, keyFile string) error {
 	} else if e != nil && !os.IsNotExist(e) {
 		return e
 	}
-	key, err := os.ReadFile(keyFile)
-	if err != nil {
-		return err
-	}
-	if len(key) != 32 {
-		return fmt.Errorf("master key must be 32 bytes")
+	var key []byte
+	if !embedded {
+		key, err = os.ReadFile(keyFile)
+		if err != nil {
+			return err
+		}
+		if len(key) != 32 {
+			return fmt.Errorf("master key must be 32 bytes")
+		}
 	}
 	z, err := zip.OpenReader(archive)
 	if err != nil {
@@ -48,7 +54,7 @@ func Restore(archive, dataDir, keyFile string) error {
 			return fmt.Errorf("invalid archive entry")
 		}
 		seen[f.Name] = true
-		allowed := f.Name == "manifest.json" || f.Name == "duet.sqlite" || strings.HasPrefix(f.Name, "receipts/") && strings.Count(f.Name, "/") == 1 && strings.HasSuffix(f.Name, ".jpg")
+		allowed := embedded && f.Name == "master.key" || f.Name == "manifest.json" || f.Name == "duet.sqlite" || strings.HasPrefix(f.Name, "receipts/") && strings.Count(f.Name, "/") == 1 && strings.HasSuffix(f.Name, ".jpg")
 		if !allowed || strings.Contains(f.Name, "..") || strings.Contains(f.Name, "\\") {
 			return fmt.Errorf("unsupported archive entry")
 		}
@@ -56,6 +62,20 @@ func Restore(archive, dataDir, keyFile string) error {
 			return fmt.Errorf("archive exceeds 10 GB restore limit")
 		}
 		size += f.UncompressedSize64
+		if embedded && f.Name == "master.key" {
+			if f.UncompressedSize64 != 32 {
+				return fmt.Errorf("invalid embedded key")
+			}
+			r, e := f.Open()
+			if e != nil {
+				return e
+			}
+			key, e = io.ReadAll(io.LimitReader(r, 33))
+			r.Close()
+			if e != nil || len(key) != 32 {
+				return fmt.Errorf("invalid embedded key")
+			}
+		}
 		if f.Name == "manifest.json" {
 			if f.UncompressedSize64 > 65536 {
 				return fmt.Errorf("invalid manifest")
@@ -75,7 +95,7 @@ func Restore(archive, dataDir, keyFile string) error {
 			foundDB = true
 		}
 	}
-	if !foundManifest || !foundDB || manifest.Format != "duet-operational-backup" || manifest.Version != 1 || manifest.KeyHash != tokenHash(string(key)) {
+	if !foundManifest || !foundDB || manifest.Format != "duet-operational-backup" || (embedded && manifest.Version != 2 || !embedded && manifest.Version != 1) || len(key) != 32 || manifest.KeyHash != tokenHash(string(key)) {
 		return fmt.Errorf("backup format or master key does not match")
 	}
 	parent := filepath.Dir(abs)

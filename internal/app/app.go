@@ -19,7 +19,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const Version = "0.3.1"
+const Version = "0.4.0"
 
 type Config struct {
 	DataDir, PublicURL string
@@ -148,7 +148,7 @@ func New(c Config) (result *App, err error) {
 		return nil, err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() && (strings.HasPrefix(entry.Name(), ".duet-restore-preview-") || strings.HasPrefix(entry.Name(), ".duet-restore-upload-")) {
+		if entry.IsDir() && (strings.HasPrefix(entry.Name(), ".duet-restore-preview-") || strings.HasPrefix(entry.Name(), ".duet-restore-upload-") || strings.HasPrefix(entry.Name(), ".duet-backup-")) {
 			if err = os.RemoveAll(filepath.Join(abs, entry.Name())); err != nil {
 				return nil, err
 			}
@@ -342,6 +342,8 @@ func (a *App) Routes() http.Handler {
 	add("POST /api/import/json", a.importJSON, true)
 	add("GET /api/backups", a.listBackups, true)
 	add("POST /api/backups", a.createBackup, true)
+	add("GET /api/backups/settings", a.backupSettings, true)
+	add("POST /api/backups/settings", a.setBackupPassword, true)
 	add("POST /api/backups/key", a.downloadMasterKey, true)
 	add("POST /api/backups/restore/preview", a.previewRestore, true)
 	add("POST /api/backups/restore/confirm", a.confirmRestore, true)

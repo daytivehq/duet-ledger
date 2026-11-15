@@ -16,6 +16,7 @@ receipts/
 *.pfx
 setup-token
 *.zip
+*.zip.age
 *.tar
 *.tar.gz
 *.tgz

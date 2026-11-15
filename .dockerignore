@@ -19,5 +19,6 @@ private-backup/
 **/*.key
 **/*.pem
 **/*.zip
+**/*.zip.age
 backups
 receipts

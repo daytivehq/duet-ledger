@@ -450,9 +450,11 @@ func TestReceiptRevocationAndOperationalRestore(t *testing.T) {
 	other.send("GET", "/receipts/"+ref.ID, nil, 200, nil)
 	c.send("DELETE", "/sharing/account/"+account+"/"+other.user.ID, nil, 200, nil)
 	other.send("GET", "/receipts/"+ref.ID, nil, 404, nil)
-	var created map[string]string
-	c.send("POST", "/backups", map[string]any{}, 201, &created)
-	archive := filepath.Join(a.Config.DataDir, "backups", created["name"])
+	name, err := a.legacyBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(a.Config.DataDir, "backups", name)
 	z, err := zip.OpenReader(archive)
 	if err != nil {
 		t.Fatal(err)

@@ -21,6 +21,7 @@ func previewBackup(t *testing.T, c *testClient, name string, archive, key []byte
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
+	writer.WriteField("backup_password", testBackupPassword)
 	if name != "" {
 		writer.WriteField("name", name)
 	}
@@ -52,7 +53,16 @@ func previewBackup(t *testing.T, c *testClient, name string, archive, key []byte
 	}
 	return plan
 }
+
+// Generate v1 archives only in compatibility tests. Production always encrypts.
+func (a *App) legacyBackup() (string, error) {
+	return a.writeBackupArchive(filepath.Join(a.Config.DataDir, "backups"), false, false)
+}
+
+const testBackupPassword = "backup-passphrase-for-tests"
+
 func makeBackup(c *testClient) string {
+	c.send("POST", "/backups/settings", map[string]string{"password": testPassword, "code": totpCode("JBSWY3DPEHPK3PXP", time.Now().Unix()/30), "backup_password": testBackupPassword}, 200, nil)
 	var out map[string]string
 	c.send("POST", "/backups", map[string]any{}, 201, &out)
 	return out["name"]
@@ -95,7 +105,7 @@ func TestWebRestoreAtomicAndSessions(t *testing.T) {
 	if countRows(t, a, "events") != before || countRows(t, a, "sessions") != 0 {
 		t.Fatal("restore did not replace records and invalidate sessions")
 	}
-	if !strings.HasSuffix(result["backup"], "-before-restore.zip") {
+	if !strings.HasSuffix(result["backup"], "-before-restore.zip.age") {
 		t.Fatal("rescue backup is not identifiable")
 	}
 	if _, err := os.Stat(filepath.Join(a.Config.DataDir, "backups", result["backup"])); err != nil {
@@ -112,7 +122,7 @@ func TestWebRestoreAtomicAndSessions(t *testing.T) {
 	c.send("POST", "/backups/restore/confirm", restoreConfirmation(plan.Token), 409, nil)
 	// The rescue archive is independently restorable and contains the later record.
 	dir := filepath.Join(t.TempDir(), "rescue")
-	if err := Restore(filepath.Join(a.Config.DataDir, "backups", result["backup"]), dir, filepath.Join(a.Config.DataDir, "master.key")); err != nil {
+	if err := RestoreWithPassword(filepath.Join(a.Config.DataDir, "backups", result["backup"]), dir, "", testBackupPassword); err != nil {
 		t.Fatal(err)
 	}
 	db, err := sql.Open("sqlite", filepath.Join(dir, "duet.sqlite"))
@@ -146,12 +156,16 @@ func TestWebRestoreCrossServerKeyAndPhotos(t *testing.T) {
 	if _, err := source.DB.Exec("UPDATE users SET totp=?,totp_pending=? WHERE id=?", source.encrypt(secret), source.encrypt(secret), s.user.ID); err != nil {
 		t.Fatal(err)
 	}
-	name := makeBackup(s)
+	name, err := source.legacyBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
 	archive, err := os.ReadFile(filepath.Join(source.Config.DataDir, "backups", name))
 	if err != nil {
 		t.Fatal(err)
 	}
 	a, _, c := newTestApp(t)
+	makeBackup(c)
 	originalKey := append([]byte(nil), a.master...)
 	previewBackup(t, c, "", archive, nil, 400)
 	previewBackup(t, c, "", archive, bytes.Repeat([]byte{1}, 32), 400)
@@ -182,7 +196,7 @@ func TestWebRestoreCrossServerKeyAndPhotos(t *testing.T) {
 	}
 	// A new backup must use the installed key and work with the CLI as well.
 	a.mu.Lock()
-	after, e := a.backup()
+	after, e := a.legacyBackup()
 	a.mu.Unlock()
 	if e != nil {
 		t.Fatal(e)
@@ -217,7 +231,7 @@ func TestWebRestoreRollbackAndExpiredPreview(t *testing.T) {
 	}
 	c.send("GET", "/accounts", nil, 200, nil)
 	a.mu.Lock()
-	_, err = a.backup()
+	_, err = a.legacyBackup()
 	a.mu.Unlock()
 	if err != nil {
 		t.Fatal("failed restore left database unusable", err)

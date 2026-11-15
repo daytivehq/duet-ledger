@@ -37,7 +37,7 @@ Compose 파일의 `${…}`는 실행 시 적용되는 설정입니다. 포트와
 
 ## 자료 보관
 
-자료는 `duet-ledger-data` 볼륨에 저장됩니다. **`docker compose down -v`는 자료를 삭제할 수 있습니다.** 운영 백업 ZIP과 원래 `master.key`를 별도로 보관하세요. [키 위치와 보관 방법](manual/ko/operations.md#masterkey)을 확인하고 중요한 자료는 정기적으로 백업하세요.
+자료는 `duet-ledger-data` 볼륨에 저장됩니다. **`docker compose down -v`는 자료를 삭제할 수 있습니다.** 암호화 백업 파일과 백업 비밀번호를 안전하게 보관하세요. 새 백업은 별도 키 파일이 필요하지 않으며, 기존 ZIP 백업에는 원래 `master.key`가 필요합니다. [백업·복원 안내](manual/ko/operations.md#masterkey)를 확인하세요.
 
 **기기의 미전송 기록은 서버 백업에 포함되지 않습니다.** 브라우저 자료를 삭제하거나 서버를 복원하기 전에 구름 아이콘에서 동기화하거나 대기 기록을 내보내세요.
 

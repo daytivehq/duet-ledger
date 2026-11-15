@@ -41,7 +41,8 @@ func run() error {
 	data := flags.String("data-dir", env("DUET_LEDGER_DATA_DIR", "./data"), "persistent data directory")
 	addr := flags.String("listen", env("DUET_LEDGER_LISTEN", "127.0.0.1:8080"), "listen address")
 	archive := flags.String("archive", "", "backup zip to restore")
-	key := flags.String("key-file", "", "original master.key")
+	key := flags.String("key-file", "", "original master.key (legacy ZIP only)")
+	passwordFile := flags.String("password-file", "", "backup password file; use - to read from stdin")
 	username := flags.String("username", "", "account username")
 	disableTOTP := flags.Bool("disable-totp", false, "disable two-factor authentication during local recovery")
 	if err := flags.Parse(args); err != nil {
@@ -52,10 +53,30 @@ func run() error {
 		fmt.Println(app.Version)
 		return nil
 	case "restore":
-		if *archive == "" || *key == "" {
-			return fmt.Errorf("restore requires --archive and --key-file; --data-dir must be empty")
+		if *archive == "" || (*key == "" && *passwordFile == "") {
+			return fmt.Errorf("restore requires --archive and --password-file (or --key-file for legacy ZIP); --data-dir must be empty")
 		}
-		if err := app.Restore(*archive, *data, *key); err != nil {
+		var password string
+		if *passwordFile != "" {
+			var input io.Reader = os.Stdin
+			if *passwordFile != "-" {
+				f, err := os.Open(*passwordFile)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				input = f
+			}
+			b, err := io.ReadAll(io.LimitReader(input, 259))
+			if err != nil {
+				return err
+			}
+			password = strings.TrimSuffix(strings.TrimSuffix(string(b), "\n"), "\r")
+			if len(password) == 0 || len(password) > 256 {
+				return fmt.Errorf("invalid backup password length")
+			}
+		}
+		if err := app.RestoreWithPassword(*archive, *data, *key, password); err != nil {
 			return err
 		}
 		fmt.Println("Restored into a new data directory. Review sharing before exposing the server.")

@@ -347,6 +347,8 @@ try {
     "-137",
   );
   assert.equal((await c.request("GET", "/accounts"))[0].balance, "59863");
+  const backupPassword = "smoke-backup-password";
+  await c.request("POST", "/backups/settings", { password, backup_password: backupPassword });
   const backup = await c.request("POST", "/backups", {}, 201);
   const oldCookie = c.cookie;
   await stop(app.child);
@@ -374,12 +376,12 @@ try {
       "restore",
       "--archive",
       path.join(data, "backups", backup.name),
-      "--key-file",
-      path.join(data, "master.key"),
+      "--password-file",
+      "-",
       "--data-dir",
       target,
     ],
-    { encoding: "utf8" },
+    { encoding: "utf8", input: backupPassword + "\n" },
   );
   assert.equal(restored.status, 0, restored.stderr);
   const restoreApp = await start(target);
